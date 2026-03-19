@@ -1,0 +1,122 @@
+const express = require('express');
+const http    = require('http');
+const { Server } = require('socket.io');
+const path    = require('path');
+
+const app    = express();
+const server = http.createServer(app);
+const io     = new Server(server, { cors: { origin: '*' } });
+
+// Serve all static files (online.html, etc.) from this directory
+app.use(express.static(path.join(__dirname)));
+
+// ── In-memory room store ───────────────────────────────────────────────────
+const rooms = {};
+
+function makeCode() {
+  return Math.random().toString(36).slice(2, 6).toUpperCase();
+}
+
+function cleanRoom(code) {
+  const room = rooms[code];
+  if (!room) return;
+  clearInterval(room.interval);
+  delete rooms[code];
+}
+
+// ── Socket events ──────────────────────────────────────────────────────────
+io.on('connection', socket => {
+  console.log('connect', socket.id);
+
+  // ── Create a new room ────────────────────────────────────────────────────
+  socket.on('create_room', () => {
+    // Leave any previous room
+    if (socket.roomCode) cleanRoom(socket.roomCode);
+
+    let code;
+    do { code = makeCode(); } while (rooms[code]);
+
+    rooms[code] = {
+      code,
+      players:  [socket.id],
+      seed:     Math.random(),
+      scores:   [0, 0],
+      timeLeft: 300,
+      started:  false,
+      interval: null,
+    };
+
+    socket.join(code);
+    socket.roomCode  = code;
+    socket.playerIdx = 0;
+
+    socket.emit('room_created', {
+      code,
+      seed:      rooms[code].seed,
+      playerIdx: 0,
+    });
+  });
+
+  // ── Join an existing room ─────────────────────────────────────────────────
+  socket.on('join_room', ({ code }) => {
+    const key  = (code || '').toUpperCase().trim();
+    const room = rooms[key];
+
+    if (!room)                  return socket.emit('room_error', { msg: 'Room not found. Check the code and try again.' });
+    if (room.players.length >= 2) return socket.emit('room_error', { msg: 'Room is full.' });
+    if (room.started)           return socket.emit('room_error', { msg: 'Game already in progress.' });
+
+    room.players.push(socket.id);
+    socket.join(key);
+    socket.roomCode  = key;
+    socket.playerIdx = 1;
+
+    socket.emit('room_joined', {
+      code:      room.code,
+      seed:      room.seed,
+      playerIdx: 1,
+    });
+
+    // Both players present — start the game
+    room.started = true;
+    io.to(key).emit('game_start', { seed: room.seed });
+
+    // Server-authoritative countdown
+    room.interval = setInterval(() => {
+      room.timeLeft = Math.max(0, room.timeLeft - 1);
+      io.to(key).emit('timer_tick', { timeLeft: room.timeLeft });
+
+      if (room.timeLeft === 0) {
+        clearInterval(room.interval);
+        room.interval = null;
+        io.to(key).emit('game_over', { scores: room.scores });
+      }
+    }, 1000);
+  });
+
+  // ── Score update from a player ────────────────────────────────────────────
+  socket.on('score_update', ({ score }) => {
+    const room = rooms[socket.roomCode];
+    if (!room) return;
+
+    room.scores[socket.playerIdx] = score;
+    io.to(socket.roomCode).emit('scores_update', { scores: [...room.scores] });
+  });
+
+  // ── Disconnect ────────────────────────────────────────────────────────────
+  socket.on('disconnect', () => {
+    console.log('disconnect', socket.id);
+    const room = rooms[socket.roomCode];
+    if (!room) return;
+
+    io.to(socket.roomCode).emit('opponent_left');
+    cleanRoom(socket.roomCode);
+  });
+});
+
+// ── Start ──────────────────────────────────────────────────────────────────
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`\n✅  Server running → http://localhost:${PORT}`);
+  console.log(`   Open online.html via http://localhost:${PORT}/online.html\n`);
+});

@@ -1,0 +1,432 @@
+﻿import { useState, useEffect } from "react";
+
+
+// ── constants ──────────────────────────────────────────────────────────────
+const SUITS = ['♠','♥','♦','♣'];
+const VALS  = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+const isRed = s => s === '♥' || s === '♦';
+const vi    = v => VALS.indexOf(v);
+
+
+const canStack = (card, onto) =>
+  onto ? onto.up && isRed(card.s) !== isRed(onto.s) && vi(card.v) === vi(onto.v) - 1
+       : card.v === 'K';
+
+
+const canFound = (card, pile) =>
+  pile.length === 0
+    ? card.v === 'A'
+    : card.s === pile[pile.length-1].s && vi(card.v) === vi(pile[pile.length-1].v) + 1;
+
+
+// ── deck helpers ───────────────────────────────────────────────────────────
+const mkDeck = () => SUITS.flatMap(s => VALS.map(v => ({ s, v, up: false, id:`${v}${s}` })));
+const shuffle = a => {
+  const b = [...a];
+  for (let i = b.length-1; i > 0; i--) {
+    const j = Math.floor(Math.random()*(i+1));
+    [b[i],b[j]] = [b[j],b[i]];
+  }
+  return b;
+};
+
+
+const newGame = () => {
+  const deck = shuffle(mkDeck());
+  const tab = Array.from({length:7}, () => []);
+  let k = 0;
+  for (let c = 0; c < 7; c++)
+    for (let r = 0; r <= c; r++)
+      tab[c].push({...deck[k++], up: r===c});
+  return {
+    tab,
+    found: [[],[],[],[]],
+    stock: deck.slice(k).map(c => ({...c, up:false})),
+    waste: [],
+    score: 0,
+    moves: 0,
+  };
+};
+
+
+// ── card dimensions ────────────────────────────────────────────────────────
+const CW=66, CH=92, FDU=28, FDD=18;
+
+
+// ── sub-components ─────────────────────────────────────────────────────────
+const Back = ({ style, onClick }) => (
+  <div onClick={onClick} style={{
+    width:CW, height:CH, borderRadius:8, flexShrink:0, cursor:'pointer',
+    border:'1px solid #1e3a8a',
+    background:'repeating-linear-gradient(135deg,#1e40af,#1e40af 3px,#1d4ed8 3px,#1d4ed8 9px)',
+    ...style
+  }}/>
+);
+
+
+const Face = ({ card, sel, style, onClick, onDbl }) => (
+  <div onClick={onClick} onDoubleClick={onDbl} style={{
+    width:CW, height:CH, borderRadius:8, background:'#fff', flexShrink:0,
+    border: sel ? '2px solid #f59e0b' : '1px solid #cbd5e1',
+    boxShadow: sel
+      ? '0 0 0 3px rgba(251,191,36,.45), 0 4px 12px rgba(0,0,0,.35)'
+      : '0 2px 6px rgba(0,0,0,.22)',
+    cursor:'pointer', position:'relative',
+    color: isRed(card.s) ? '#dc2626' : '#111',
+    userSelect:'none', ...style
+  }}>
+    <div style={{position:'absolute',top:3,left:4,lineHeight:1.15,textAlign:'center'}}>
+      <div style={{fontSize:10,fontWeight:700}}>{card.v}</div>
+      <div style={{fontSize:10}}>{card.s}</div>
+    </div>
+    <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:28}}>
+      {card.s}
+    </div>
+    <div style={{position:'absolute',bottom:3,right:4,lineHeight:1.15,textAlign:'center',transform:'rotate(180deg)'}}>
+      <div style={{fontSize:10,fontWeight:700}}>{card.v}</div>
+      <div style={{fontSize:10}}>{card.s}</div>
+    </div>
+  </div>
+);
+
+
+const Slot = ({ label, hint, onClick }) => (
+  <div onClick={onClick} style={{
+    width:CW, height:CH, borderRadius:8, flexShrink:0,
+    border:`2px dashed ${hint ? '#f59e0b' : 'rgba(255,255,255,.15)'}`,
+    display:'flex', alignItems:'center', justifyContent:'center',
+    color: hint ? '#f59e0b' : 'rgba(255,255,255,.22)',
+    fontSize:16, cursor:'pointer',
+    background: hint ? 'rgba(251,191,36,.08)' : 'rgba(0,0,0,.12)',
+  }}>{label}</div>
+);
+
+
+// ── main component ─────────────────────────────────────────────────────────
+export default function Solitaire() {
+  const [g, setG]     = useState(() => newGame());
+  const [sel, setSel] = useState(null);   // {type:'waste'|'found'|'tab', col, idx}
+  const [won, setWon] = useState(false);
+  const [sec, setSec] = useState(0);
+
+
+  // Timer
+  useEffect(() => {
+    if (won) return;
+    const id = setInterval(() => setSec(s => s+1), 1000);
+    return () => clearInterval(id);
+  }, [won]);
+
+
+  // Win check
+  useEffect(() => {
+    if (g.found.every(f => f.length === 13)) setWon(true);
+  }, [g.found]);
+
+
+  const fmt = s => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+
+
+  // Cards currently selected
+  const selCards = !sel ? []
+    : sel.type === 'waste' ? (g.waste.length ? [g.waste[g.waste.length-1]] : [])
+    : sel.type === 'found' ? (g.found[sel.col].length ? [g.found[sel.col][g.found[sel.col].length-1]] : [])
+    : g.tab[sel.col].slice(sel.idx);
+
+
+  const isSel = (type, col, idx) => {
+    if (!sel || sel.type !== type) return false;
+    if (type === 'waste') return true;
+    if (type === 'found') return sel.col === col;
+    return sel.col === col && idx >= sel.idx;
+  };
+
+
+  // Remove selected cards from their source (returns new game state)
+  const removeSel = (game, s) => {
+    const ng = {
+      ...game,
+      tab:   game.tab.map(p=>[...p]),
+      found: game.found.map(f=>[...f]),
+      waste: [...game.waste],
+      moves: game.moves+1,
+    };
+    if (s.type === 'waste') {
+      ng.waste.pop();
+    } else if (s.type === 'found') {
+      ng.found[s.col].pop();
+    } else {
+      ng.tab[s.col] = ng.tab[s.col].slice(0, s.idx);
+      if (ng.tab[s.col].length > 0) {
+        const last = ng.tab[s.col].length-1;
+        if (!ng.tab[s.col][last].up)
+          ng.tab[s.col][last] = {...ng.tab[s.col][last], up:true};
+      }
+    }
+    return ng;
+  };
+
+
+  // Try to auto-send a card to any foundation
+  const tryAutoFound = (card, source) => {
+    for (let fi = 0; fi < 4; fi++) {
+      if (canFound(card, g.found[fi])) {
+        const ng = removeSel(g, source);
+        ng.found[fi] = [...g.found[fi], card];
+        ng.score += 10;
+        setG(ng); setSel(null);
+        return;
+      }
+    }
+  };
+
+
+  // ── event handlers ──────────────────────────────────────────────────────
+  const sp = e => e.stopPropagation();
+
+
+  const onStock = e => {
+    sp(e); setSel(null);
+    setG(g => g.stock.length === 0
+      ? {...g, stock:[...g.waste].reverse().map(c=>({...c,up:false})), waste:[]}
+      : {...g, stock:g.stock.slice(0,-1), waste:[...g.waste, {...g.stock[g.stock.length-1],up:true}]}
+    );
+  };
+
+
+  const onWaste = e => {
+    sp(e);
+    if (!g.waste.length) return;
+    if (sel?.type === 'waste') { setSel(null); return; }
+    setSel({type:'waste'});
+  };
+
+
+  const dblWaste = e => {
+    sp(e);
+    if (!g.waste.length) return;
+    tryAutoFound(g.waste[g.waste.length-1], {type:'waste'});
+  };
+
+
+  const onFound = (fi, e) => {
+    sp(e);
+    if (!sel || !selCards.length) {
+      if (g.found[fi].length) setSel({type:'found', col:fi});
+      return;
+    }
+    if (selCards.length === 1 && canFound(selCards[0], g.found[fi])) {
+      const ng = removeSel(g, sel);
+      ng.found[fi] = [...g.found[fi], selCards[0]];
+      ng.score += 10;
+      setG(ng); setSel(null);
+    } else {
+      setSel(null);
+    }
+  };
+
+
+  const onTab = (col, idx, e) => {
+    sp(e);
+    const card = g.tab[col][idx];
+    if (!card) return;
+
+
+    // Flip top face-down card
+    if (!card.up && idx === g.tab[col].length-1) {
+      const tab = g.tab.map(p=>[...p]);
+      tab[col][idx] = {...card, up:true};
+      setG({...g, tab, moves:g.moves+1}); setSel(null);
+      return;
+    }
+    if (!card.up) return;
+
+
+    if (!sel) { setSel({type:'tab', col, idx}); return; }
+    if (sel.type==='tab' && sel.col===col && sel.idx===idx) { setSel(null); return; }
+
+
+    if (selCards.length) {
+      const onto = g.tab[col][g.tab[col].length-1] ?? null;
+      if (canStack(selCards[0], onto) && !(sel.type==='tab' && sel.col===col)) {
+        const ng = removeSel(g, sel);
+        ng.tab[col] = [...ng.tab[col], ...selCards];
+        if (sel.type==='waste') ng.score += 5;
+        setG(ng); setSel(null);
+        return;
+      }
+    }
+    setSel({type:'tab', col, idx});
+  };
+
+
+  const dblTab = (col, idx, e) => {
+    sp(e);
+    const card = g.tab[col][idx];
+    if (!card?.up || idx !== g.tab[col].length-1) return;
+    tryAutoFound(card, {type:'tab', col, idx});
+  };
+
+
+  const onEmptyTab = (col, e) => {
+    sp(e);
+    if (!sel || !selCards.length || selCards[0].v !== 'K') { setSel(null); return; }
+    const ng = removeSel(g, sel);
+    ng.tab[col] = [...ng.tab[col], ...selCards];
+    setG(ng); setSel(null);
+  };
+
+
+  const startNew = () => { setG(newGame()); setSel(null); setWon(false); setSec(0); };
+
+
+  const FLABELS = ['♠','♥','♦','♣'];
+
+
+  return (
+    <div
+      onClick={() => setSel(null)}
+      style={{
+        minHeight:'100vh', padding:'12px 8px',
+        background:'radial-gradient(ellipse at 50% 20%,#15803d 0%,#166534 45%,#14532d 100%)',
+        display:'flex', flexDirection:'column', alignItems:'center',
+      }}
+    >
+      {/* Header */}
+      <div onClick={sp} style={{
+        width:'100%', maxWidth:524,
+        display:'flex', alignItems:'center', justifyContent:'space-between',
+        marginBottom:12,
+      }}>
+        <span style={{color:'#fff',fontSize:20,fontWeight:800,letterSpacing:1,textShadow:'0 2px 4px rgba(0,0,0,.4)'}}>
+          ♠ Solitaire
+        </span>
+        <div style={{display:'flex',gap:12,alignItems:'center',color:'rgba(255,255,255,.85)',fontSize:13}}>
+          <span>⏱ {fmt(sec)}</span>
+          <span>★ {g.score}</span>
+          <span>🃏 {g.moves}</span>
+          <button onClick={e=>{sp(e);startNew();}} style={{
+            padding:'4px 10px', background:'#16a34a', color:'#fff',
+            border:'1px solid #22c55e', borderRadius:6, cursor:'pointer', fontSize:12, fontWeight:700
+          }}>New</button>
+        </div>
+      </div>
+
+
+      {/* Top row: Stock · Waste · gap · Foundations */}
+      <div onClick={sp} style={{width:'100%',maxWidth:524,display:'flex',gap:8,marginBottom:14}}>
+        {g.stock.length > 0
+          ? <Back onClick={onStock}/>
+          : <Slot label="↺" onClick={onStock}/>
+        }
+
+
+        {g.waste.length > 0
+          ? <Face
+              card={g.waste[g.waste.length-1]}
+              sel={isSel('waste',null,null)}
+              onClick={onWaste}
+              onDbl={dblWaste}
+            />
+          : <Slot label="" onClick={sp}/>
+        }
+
+
+        {/* Stock count badge */}
+        <div style={{display:'flex',alignItems:'center',paddingLeft:4}}>
+          <span style={{color:'rgba(255,255,255,.35)',fontSize:11}}>{g.stock.length} left</span>
+        </div>
+
+
+        <div style={{flex:1}}/>
+
+
+        {g.found.map((pile,fi) =>
+          pile.length > 0
+            ? <Face key={fi}
+                card={pile[pile.length-1]}
+                sel={isSel('found',fi,null)}
+                onClick={e=>onFound(fi,e)}
+                onDbl={e=>{sp(e);}}
+              />
+            : <Slot key={fi}
+                label={FLABELS[fi]}
+                hint={selCards.length===1 && selCards[0].v==='A'}
+                onClick={e=>onFound(fi,e)}
+              />
+        )}
+      </div>
+
+
+      {/* Tableau */}
+      <div onClick={sp} style={{width:'100%',maxWidth:524,display:'flex',gap:8,alignItems:'flex-start'}}>
+        {g.tab.map((pile,col) => {
+          let h = CH;
+          if (pile.length > 0) {
+            let off = 0;
+            pile.forEach((c,i) => { if (i < pile.length-1) off += c.up ? FDU : FDD; });
+            h = off + CH;
+          }
+          return (
+            <div key={col} style={{position:'relative',width:CW,height:Math.max(h,CH),flexShrink:0}}>
+              {pile.length === 0
+                ? <Slot
+                    label="K"
+                    hint={selCards.length>0 && selCards[0].v==='K'}
+                    onClick={e=>onEmptyTab(col,e)}
+                  />
+                : pile.map((card,ci) => {
+                    let top = 0;
+                    for (let i = 0; i < ci; i++) top += pile[i].up ? FDU : FDD;
+                    return card.up
+                      ? <Face key={card.id} card={card}
+                          sel={isSel('tab',col,ci)}
+                          style={{position:'absolute',top,left:0,zIndex:ci+1}}
+                          onClick={e=>onTab(col,ci,e)}
+                          onDbl={e=>dblTab(col,ci,e)}
+                        />
+                      : <Back key={card.id}
+                          style={{position:'absolute',top,left:0,zIndex:ci+1,
+                            cursor:ci===pile.length-1?'pointer':'default'}}
+                          onClick={e=>onTab(col,ci,e)}
+                        />;
+                  })
+              }
+            </div>
+          );
+        })}
+      </div>
+
+
+      {/* Instructions */}
+      <div style={{marginTop:16,color:'rgba(255,255,255,.3)',fontSize:11,textAlign:'center',lineHeight:1.8}}>
+        Click to select · Click destination to move · Double-click to auto-send to foundation
+      </div>
+
+
+      {/* Win modal */}
+      {won && (
+        <div style={{
+          position:'fixed',inset:0,background:'rgba(0,0,0,.75)',
+          display:'flex',alignItems:'center',justifyContent:'center',zIndex:100
+        }}>
+          <div style={{
+            background:'white',borderRadius:20,padding:'40px 48px',
+            textAlign:'center',boxShadow:'0 20px 60px rgba(0,0,0,.5)'
+          }}>
+            <div style={{fontSize:60,marginBottom:8}}>🎉</div>
+            <h2 style={{fontSize:34,fontWeight:800,color:'#166534',margin:'0 0 8px'}}>You Win!</h2>
+            <p style={{color:'#6b7280',margin:'0 0 4px'}}>Score: <strong>{g.score}</strong></p>
+            <p style={{color:'#9ca3af',fontSize:14,margin:'0 0 24px'}}>
+              Time: {fmt(sec)} · Moves: {g.moves}
+            </p>
+            <button onClick={startNew} style={{
+              padding:'12px 36px',background:'#16a34a',color:'white',
+              border:'none',borderRadius:12,fontSize:17,fontWeight:700,cursor:'pointer'
+            }}>Play Again</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
