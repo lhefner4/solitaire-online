@@ -382,7 +382,8 @@
           const data = await res.json();
           if (!res.ok) { setError(data.error || 'Something went wrong'); setLoading(false); return; }
           localStorage.setItem('sol_token', data.token);
-          onAuth({ token: data.token, username: data.username });
+          setLoading(false);
+          onAuth({ token: data.token, username: data.username, userId: decodeJwt(data.token)?.userId });
         } catch {
           setError('Network error. Please try again.'); setLoading(false);
         }
