@@ -223,12 +223,28 @@ function startTimer(code) {
   }, 1000);
 }
 
+// ── Socket auth middleware ─────────────────────────────────────────────────
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token;
+  if (!token) {
+    return next(new Error('auth_required'));
+  }
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.userId   = decoded.userId;
+    socket.username = decoded.username;
+    next();
+  } catch {
+    next(new Error('auth_invalid'));
+  }
+});
+
 // ── Socket events ──────────────────────────────────────────────────────────
 io.on('connection', socket => {
   console.log('connect', socket.id);
 
   // ── Create a new room ────────────────────────────────────────────────────
-  socket.on('create_room', ({ name }) => {
+  socket.on('create_room', () => {
     if (socket.roomCode) cleanRoom(socket.roomCode);
 
     let code;
@@ -237,7 +253,8 @@ io.on('connection', socket => {
     rooms[code] = {
       code,
       players:  [socket.id],
-      names:    [name || 'Player 1', ''],
+      names:    [socket.username, ''],
+      userIds:  [socket.userId, null],   // track DB user IDs for match saving
       seed:     Math.floor(Math.random() * 0xFFFFFFFF),
       scores:   [0, 0],
       timeLeft: 300,
@@ -253,7 +270,7 @@ io.on('connection', socket => {
   });
 
   // ── Join an existing room ─────────────────────────────────────────────────
-  socket.on('join_room', ({ code, name }) => {
+  socket.on('join_room', ({ code }) => {
     const key  = (code || '').toUpperCase().trim();
     const room = rooms[key];
 
@@ -262,8 +279,9 @@ io.on('connection', socket => {
     if (room.started)             return socket.emit('room_error', { msg: 'Game already in progress.' });
 
     room.players.push(socket.id);
-    room.names[1] = name || 'Player 2';
-    room.ready    = [false, false];
+    room.names[1]   = socket.username;
+    room.userIds[1] = socket.userId;
+    room.ready      = [false, false];
     socket.join(key);
     socket.roomCode  = key;
     socket.playerIdx = 1;
