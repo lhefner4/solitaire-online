@@ -61,6 +61,14 @@ const authLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later.' },
 });
 
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,  // 1 minute
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+
 // ── Auth REST endpoints ────────────────────────────────────────────────────
 app.post('/api/register', authLimiter, async (req, res) => {
   const { username, password } = req.body || {};
@@ -120,12 +128,12 @@ function requireAuth(req, res, next) {
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch {
-    res.status(401).json({ error: 'Invalid or expired token' });
+    return res.status(401).json({ error: 'Invalid or expired token' });
   }
 }
 
 // ── Head-to-head stats endpoint ────────────────────────────────────────────
-app.get('/api/h2h', requireAuth, async (req, res) => {
+app.get('/api/h2h', apiLimiter, requireAuth, async (req, res) => {
   const userId = req.user.userId;
   try {
     const result = await db.query(`
