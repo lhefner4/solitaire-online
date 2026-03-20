@@ -29,7 +29,7 @@ io.on('connection', socket => {
   console.log('connect', socket.id);
 
   // ── Create a new room ────────────────────────────────────────────────────
-  socket.on('create_room', () => {
+  socket.on('create_room', ({ name }) => {
     // Leave any previous room
     if (socket.roomCode) cleanRoom(socket.roomCode);
 
@@ -39,6 +39,7 @@ io.on('connection', socket => {
     rooms[code] = {
       code,
       players:  [socket.id],
+      names:    [name || 'Player 1', ''],
       seed:     Math.random(),
       scores:   [0, 0],
       timeLeft: 300,
@@ -58,15 +59,16 @@ io.on('connection', socket => {
   });
 
   // ── Join an existing room ─────────────────────────────────────────────────
-  socket.on('join_room', ({ code }) => {
+  socket.on('join_room', ({ code, name }) => {
     const key  = (code || '').toUpperCase().trim();
     const room = rooms[key];
 
-    if (!room)                  return socket.emit('room_error', { msg: 'Room not found. Check the code and try again.' });
+    if (!room)                    return socket.emit('room_error', { msg: 'Room not found. Check the code and try again.' });
     if (room.players.length >= 2) return socket.emit('room_error', { msg: 'Room is full.' });
-    if (room.started)           return socket.emit('room_error', { msg: 'Game already in progress.' });
+    if (room.started)             return socket.emit('room_error', { msg: 'Game already in progress.' });
 
     room.players.push(socket.id);
+    room.names[1] = name || 'Player 2';
     socket.join(key);
     socket.roomCode  = key;
     socket.playerIdx = 1;
@@ -79,7 +81,7 @@ io.on('connection', socket => {
 
     // Both players present — start the game
     room.started = true;
-    io.to(key).emit('game_start', { seed: room.seed });
+    io.to(key).emit('game_start', { seed: room.seed, names: room.names });
 
     // Server-authoritative countdown
     room.interval = setInterval(() => {

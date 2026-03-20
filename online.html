@@ -313,22 +313,40 @@
     }
 
     // ── Lobby screen ─────────────────────────────────────────────────────────
-    function LobbyScreen({ onCreate, onJoin, joinCode, setJoinCode, error }) {
+    function LobbyScreen({ onCreate, onJoin, joinCode, setJoinCode, playerName, setPlayerName, error }) {
+      const nameInput = {
+        width:'100%', padding:'12px 16px', borderRadius:10,
+        border:'2px solid rgba(255,255,255,.2)',
+        background:'rgba(255,255,255,.1)', color:'#fff', fontSize:16,
+        outline:'none', marginBottom:28,
+      };
+
       return (
         <div style={{
           minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center',
           background:'radial-gradient(ellipse at 50% 30%,#15803d,#14532d)',
         }}>
-          <div style={{textAlign:'center', color:'#fff', padding:32}}>
+          <div style={{textAlign:'center', color:'#fff', padding:32, width:'100%', maxWidth:360}}>
             <div style={{fontSize:56, marginBottom:8}}>♠</div>
             <h1 style={{fontSize:32, fontWeight:800, marginBottom:4, letterSpacing:1}}>Solitaire</h1>
-            <p style={{color:'rgba(255,255,255,.5)', marginBottom:40, fontSize:15}}>Online Multiplayer</p>
+            <p style={{color:'rgba(255,255,255,.5)', marginBottom:32, fontSize:15}}>Online Multiplayer</p>
 
-            <button onClick={onCreate} style={{
+            <input
+              value={playerName}
+              onChange={e => setPlayerName(e.target.value)}
+              placeholder="Enter your name"
+              maxLength={20}
+              style={nameInput}
+            />
+
+            <button onClick={onCreate} disabled={!playerName.trim()} style={{
               display:'block', width:'100%', padding:'14px 0',
-              background:'#16a34a', color:'#fff', border:'none',
-              borderRadius:12, fontSize:17, fontWeight:700, cursor:'pointer',
-              marginBottom:20, boxShadow:'0 4px 16px rgba(0,0,0,.3)',
+              background: playerName.trim() ? '#16a34a' : 'rgba(255,255,255,.15)',
+              color:'#fff', border:'none',
+              borderRadius:12, fontSize:17, fontWeight:700,
+              cursor: playerName.trim() ? 'pointer' : 'default',
+              marginBottom:20, boxShadow: playerName.trim() ? '0 4px 16px rgba(0,0,0,.3)' : 'none',
+              transition:'all .15s',
             }}>
               Create Game
             </button>
@@ -339,8 +357,8 @@
               <input
                 value={joinCode}
                 onChange={e => setJoinCode(e.target.value.toUpperCase())}
-                onKeyDown={e => e.key === 'Enter' && onJoin()}
-                placeholder="Enter code"
+                onKeyDown={e => e.key === 'Enter' && playerName.trim() && onJoin()}
+                placeholder="Code"
                 maxLength={4}
                 style={{
                   flex:1, padding:'12px 16px', borderRadius:10, border:'2px solid rgba(255,255,255,.2)',
@@ -348,13 +366,20 @@
                   fontWeight:800, textAlign:'center', letterSpacing:4, outline:'none',
                 }}
               />
-              <button onClick={onJoin} style={{
-                padding:'12px 20px', background:'#2563eb', color:'#fff',
-                border:'none', borderRadius:10, fontSize:15, fontWeight:700, cursor:'pointer',
+              <button onClick={onJoin} disabled={!playerName.trim() || !joinCode.trim()} style={{
+                padding:'12px 20px',
+                background: (playerName.trim() && joinCode.trim()) ? '#2563eb' : 'rgba(255,255,255,.15)',
+                color:'#fff', border:'none', borderRadius:10, fontSize:15, fontWeight:700,
+                cursor: (playerName.trim() && joinCode.trim()) ? 'pointer' : 'default',
+                transition:'all .15s',
               }}>
                 Join
               </button>
             </div>
+
+            {!playerName.trim() && (
+              <div style={{marginTop:12, color:'rgba(255,255,255,.4)', fontSize:13}}>Enter your name to play</div>
+            )}
 
             {error && (
               <div style={{marginTop:16, color:'#f87171', fontSize:14, fontWeight:600}}>{error}</div>
@@ -404,9 +429,9 @@
     }
 
     // ── Game over screen ──────────────────────────────────────────────────────
-    function GameOverScreen({ myScore, oppScore, playerName, onPlayAgain }) {
+    function GameOverScreen({ myScore, oppScore, myName, oppName, onPlayAgain }) {
       const diff = myScore - oppScore;
-      const result = diff > 0 ? 'You Win! 🎉' : diff < 0 ? 'You Lose 😢' : "It's a Tie! 🤝";
+      const result = diff > 0 ? `${myName} Wins! 🎉` : diff < 0 ? `${oppName} Wins! 🎉` : "It's a Tie! 🤝";
       const color  = diff > 0 ? '#16a34a' : diff < 0 ? '#dc2626' : '#d97706';
 
       return (
@@ -419,16 +444,16 @@
             textAlign:'center', boxShadow:'0 20px 60px rgba(0,0,0,.5)', minWidth:300,
           }}>
             <div style={{fontSize:52, marginBottom:8}}>🏆</div>
-            <h2 style={{fontSize:30, fontWeight:800, color, margin:'0 0 20px'}}>{result}</h2>
+            <h2 style={{fontSize:28, fontWeight:800, color, margin:'0 0 20px'}}>{result}</h2>
 
             <div style={{display:'flex', gap:32, justifyContent:'center', marginBottom:28}}>
               <div>
-                <div style={{fontSize:13, color:'#9ca3af', marginBottom:4}}>You</div>
+                <div style={{fontSize:13, color:'#9ca3af', marginBottom:4}}>{myName}</div>
                 <div style={{fontSize:36, fontWeight:800, color:'#166534'}}>{myScore}</div>
               </div>
               <div style={{fontSize:24, color:'#d1d5db', alignSelf:'center'}}>vs</div>
               <div>
-                <div style={{fontSize:13, color:'#9ca3af', marginBottom:4}}>Opponent</div>
+                <div style={{fontSize:13, color:'#9ca3af', marginBottom:4}}>{oppName}</div>
                 <div style={{fontSize:36, fontWeight:800, color:'#166534'}}>{oppScore}</div>
               </div>
             </div>
@@ -445,7 +470,7 @@
     }
 
     // ── Online game header ────────────────────────────────────────────────────
-    function GameHeader({ playerName, myScore, oppScore, timeLeft }) {
+    function GameHeader({ myName, oppName, myScore, oppScore, timeLeft }) {
       return (
         <div style={{
           display:'flex', alignItems:'center', justifyContent:'center',
@@ -457,8 +482,9 @@
             <div style={{
               flex:1, background:'#16a34a', borderRadius:10,
               padding:'8px 14px', color:'#fff', fontWeight:700, fontSize:14,
+              overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
             }}>
-              ★ {myScore} <span style={{fontWeight:400, fontSize:12, opacity:.75}}>you</span>
+              ★ {myScore} <span style={{fontWeight:400, fontSize:12, opacity:.75}}>{myName}</span>
             </div>
 
             <div style={{
@@ -474,8 +500,9 @@
               flex:1, background:'rgba(255,255,255,.1)', borderRadius:10,
               padding:'8px 14px', color:'rgba(255,255,255,.8)', fontWeight:700,
               fontSize:14, textAlign:'right',
+              overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
             }}>
-              <span style={{fontWeight:400, fontSize:12, opacity:.75}}>opp </span>★ {oppScore}
+              <span style={{fontWeight:400, fontSize:12, opacity:.75}}>{oppName} </span>★ {oppScore}
             </div>
           </div>
         </div>
@@ -487,13 +514,15 @@
       const socketRef    = useRef(null);
       const playerIdxRef = useRef(0);
 
-      const [screen,    setScreen]    = useState('lobby');
-      const [roomCode,  setRoomCode]  = useState('');
-      const [joinCode,  setJoinCode]  = useState('');
-      const [seed,      setSeed]      = useState(null);
-      const [timeLeft,  setTimeLeft]  = useState(300);
-      const [scores,    setScores]    = useState([0, 0]);
-      const [error,     setError]     = useState('');
+      const [screen,      setScreen]      = useState('lobby');
+      const [roomCode,    setRoomCode]    = useState('');
+      const [joinCode,    setJoinCode]    = useState('');
+      const [playerName,  setPlayerName]  = useState('');
+      const [names,       setNames]       = useState(['Player 1', 'Player 2']);
+      const [seed,        setSeed]        = useState(null);
+      const [timeLeft,    setTimeLeft]    = useState(300);
+      const [scores,      setScores]      = useState([0, 0]);
+      const [error,       setError]       = useState('');
 
       // Connect socket once on mount
       useEffect(() => {
@@ -513,8 +542,9 @@
           setError('');
         });
 
-        socket.on('game_start', ({ seed }) => {
+        socket.on('game_start', ({ seed, names }) => {
           setSeed(seed);
+          setNames(names);
           setTimeLeft(300);
           setScores([0, 0]);
           setScreen('playing');
@@ -546,17 +576,17 @@
       }, []);
 
       const createRoom = () => {
+        if (!playerName.trim()) return;
         setError('');
-        socketRef.current?.emit('create_room');
+        socketRef.current?.emit('create_room', { name: playerName.trim() });
       };
 
       const joinRoom = () => {
-        if (!joinCode.trim()) return;
+        if (!joinCode.trim() || !playerName.trim()) return;
         setError('');
-        socketRef.current?.emit('join_room', { code: joinCode.trim() });
+        socketRef.current?.emit('join_room', { code: joinCode.trim(), name: playerName.trim() });
       };
 
-      // Sends this player's score to the server whenever it changes
       const onScoreChange = useCallback(score => {
         socketRef.current?.emit('score_update', { score });
       }, []);
@@ -569,13 +599,19 @@
         setError('');
       };
 
-      const pi       = playerIdxRef.current;
+      const pi      = playerIdxRef.current;
+      const myName  = names[pi]     ?? 'You';
+      const oppName = names[1 - pi] ?? 'Opponent';
       const myScore  = scores[pi]     ?? 0;
       const oppScore = scores[1 - pi] ?? 0;
-      const pName    = pi === 0 ? '♠ Player 1' : '♠ Player 2';
 
       if (screen === 'lobby') {
-        return <LobbyScreen onCreate={createRoom} onJoin={joinRoom} joinCode={joinCode} setJoinCode={setJoinCode} error={error}/>;
+        return <LobbyScreen
+          onCreate={createRoom} onJoin={joinRoom}
+          joinCode={joinCode} setJoinCode={setJoinCode}
+          playerName={playerName} setPlayerName={setPlayerName}
+          error={error}
+        />;
       }
 
       if (screen === 'waiting') {
@@ -584,12 +620,12 @@
 
       return (
         <div style={{ minHeight:'100vh', background:'#14532d' }}>
-          <GameHeader playerName={pName} myScore={myScore} oppScore={oppScore} timeLeft={timeLeft}/>
+          <GameHeader myName={myName} oppName={oppName} myScore={myScore} oppScore={oppScore} timeLeft={timeLeft}/>
 
           {screen === 'playing' && seed !== null && (
             <Solitaire
               key={seed}
-              playerName={pName}
+              playerName={`♠ ${myName}`}
               timeLeft={timeLeft}
               seed={seed}
               onScoreChange={onScoreChange}
@@ -597,7 +633,11 @@
           )}
 
           {screen === 'gameover' && (
-            <GameOverScreen myScore={myScore} oppScore={oppScore} playerName={pName} onPlayAgain={goToLobby}/>
+            <GameOverScreen
+              myScore={myScore} oppScore={oppScore}
+              myName={myName} oppName={oppName}
+              onPlayAgain={goToLobby}
+            />
           )}
         </div>
       );
