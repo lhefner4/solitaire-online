@@ -69,31 +69,42 @@ io.on('connection', socket => {
 
     room.players.push(socket.id);
     room.names[1] = name || 'Player 2';
+    room.ready    = [false, false];
     socket.join(key);
     socket.roomCode  = key;
     socket.playerIdx = 1;
 
-    socket.emit('room_joined', {
-      code:      room.code,
-      seed:      room.seed,
-      playerIdx: 1,
-    });
+    socket.emit('room_joined', { code: room.code, seed: room.seed, playerIdx: 1 });
 
-    // Both players present — start the game
-    room.started = true;
-    io.to(key).emit('game_start', { seed: room.seed, names: room.names });
+    // Both players present — move to ready check (do NOT start timer yet)
+    io.to(key).emit('players_joined', { names: room.names, ready: room.ready });
+  });
 
-    // Server-authoritative countdown
-    room.interval = setInterval(() => {
-      room.timeLeft = Math.max(0, room.timeLeft - 1);
-      io.to(key).emit('timer_tick', { timeLeft: room.timeLeft });
+  // ── Player signals ready ───────────────────────────────────────────────────
+  socket.on('player_ready', () => {
+    const room = rooms[socket.roomCode];
+    if (!room || room.started) return;
 
-      if (room.timeLeft === 0) {
-        clearInterval(room.interval);
-        room.interval = null;
-        io.to(key).emit('game_over', { scores: room.scores });
-      }
-    }, 1000);
+    room.ready[socket.playerIdx] = true;
+    io.to(socket.roomCode).emit('ready_update', { ready: [...room.ready] });
+
+    // Both ready — start the game
+    if (room.ready[0] && room.ready[1]) {
+      room.started = true;
+      io.to(socket.roomCode).emit('game_start', { seed: room.seed, names: room.names });
+
+      // Server-authoritative countdown
+      room.interval = setInterval(() => {
+        room.timeLeft = Math.max(0, room.timeLeft - 1);
+        io.to(socket.roomCode).emit('timer_tick', { timeLeft: room.timeLeft });
+
+        if (room.timeLeft === 0) {
+          clearInterval(room.interval);
+          room.interval = null;
+          io.to(socket.roomCode).emit('game_over', { scores: room.scores });
+        }
+      }, 1000);
+    }
   });
 
   // ── Score update from a player ────────────────────────────────────────────
