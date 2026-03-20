@@ -177,10 +177,13 @@
 
       const onStock = e => {
         sp(e); if (frozen) return; setSel(null);
-        setG(g => g.stock.length === 0
-          ? {...g, stock:[...g.waste].reverse().map(c=>({...c,up:false})), waste:[]}
-          : {...g, stock:g.stock.slice(0,-1), waste:[...g.waste, {...g.stock[g.stock.length-1],up:true}]}
-        );
+        setG(g => {
+          if (g.stock.length === 0)
+            return {...g, stock:[...g.waste].reverse().map(c=>({...c,up:false})), waste:[]};
+          const count    = Math.min(3, g.stock.length);
+          const newCards = g.stock.slice(-count).map(c => ({...c, up:true}));
+          return {...g, stock: g.stock.slice(0, -count), waste: [...g.waste, ...newCards]};
+        });
       };
 
       const onWaste = e => {
