@@ -207,8 +207,9 @@ async function saveMatch(room) {
   else if (s1 > s0) winnerId = p2Id;
   // NULL = draw (scores equal)
 
-  const client = await db.connect();
+  let client;
   try {
+    client = await db.connect();
     const result = await client.query(
       `INSERT INTO matches (player1_id, player2_id, winner_id, player1_score, player2_score)
        VALUES ($1, $2, $3, $4, $5) RETURNING id`,
@@ -217,7 +218,7 @@ async function saveMatch(room) {
     console.log('Match saved, id:', result.rows[0].id);
     return { p1Id, p2Id, winnerId, client };  // caller must release client
   } catch (err) {
-    client.release();
+    if (client) client.release();
     console.error('Failed to save match:', err);
     return null;
   }
@@ -288,7 +289,7 @@ function startTimer(code) {
         } finally {
           client.release();  // always return the client to the pool
         }
-      });
+      }).catch(err => console.error('saveMatch chain error:', err));
     }
   }, 1000);
 }
