@@ -40,7 +40,7 @@ io.on('connection', socket => {
       code,
       players:  [socket.id],
       names:    [name || 'Player 1', ''],
-      seed:     Math.random(),
+      seed:     Math.floor(Math.random() * 0xFFFFFFFF),
       scores:   [0, 0],
       timeLeft: 300,
       started:  false,
