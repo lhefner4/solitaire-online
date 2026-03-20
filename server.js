@@ -195,6 +195,52 @@ function cleanRoom(code) {
   delete rooms[code];
 }
 
+// saveMatch checks out a dedicated client from the pool and returns it alongside
+// the saved IDs so that getH2H can reuse the same connection (read-after-write safety).
+async function saveMatch(room) {
+  const [p1Id, p2Id] = room.userIds;
+  if (!p1Id || !p2Id) return null;  // safety: both players must be authenticated
+
+  const [s0, s1] = room.scores;
+  let winnerId = null;
+  if (s0 > s1) winnerId = p1Id;
+  else if (s1 > s0) winnerId = p2Id;
+  // NULL = draw (scores equal)
+
+  const client = await db.connect();
+  try {
+    const result = await client.query(
+      `INSERT INTO matches (player1_id, player2_id, winner_id, player1_score, player2_score)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [p1Id, p2Id, winnerId, s0, s1]
+    );
+    console.log('Match saved, id:', result.rows[0].id);
+    return { p1Id, p2Id, winnerId, client };  // caller must release client
+  } catch (err) {
+    client.release();
+    console.error('Failed to save match:', err);
+    return null;
+  }
+}
+
+async function getH2H(client, userId, opponentId) {
+  try {
+    const result = await client.query(`
+      SELECT
+        SUM(CASE WHEN (winner_id IS NOT NULL AND winner_id = $1) THEN 1 ELSE 0 END)::int AS wins,
+        SUM(CASE WHEN (winner_id IS NOT NULL AND winner_id != $1) THEN 1 ELSE 0 END)::int AS losses,
+        SUM(CASE WHEN winner_id IS NULL THEN 1 ELSE 0 END)::int AS draws
+      FROM matches
+      WHERE (player1_id = $1 AND player2_id = $2)
+         OR (player1_id = $2 AND player2_id = $1)
+    `, [userId, opponentId]);
+    return result.rows[0];
+  } catch (err) {
+    console.error('getH2H error:', err);
+    return null;
+  }
+}
+
 // ── Start the countdown for a room ────────────────────────────────────────
 // Captures `code` as a local string — safe even if the triggering socket
 // later disconnects or changes rooms.
@@ -219,6 +265,30 @@ function startTimer(code) {
       clearInterval(r.interval);
       r.interval = null;
       io.to(code).emit('game_over', { scores: r.scores });
+
+      // Save match and emit H2H update (same DB client for read-after-write safety)
+      saveMatch(r).then(async saved => {
+        if (!saved) return;
+        const { p1Id, p2Id, client } = saved;
+        const room = rooms[code];  // room may be gone if both disconnected; that's ok
+
+        try {
+          // Emit h2h_update to each player individually
+          const sockets = await io.in(code).fetchSockets();
+          for (const s of sockets) {
+            const opponentId = s.userId === p1Id ? p2Id : p1Id;
+            const opponentName = s.userId === p1Id
+              ? (room?.names[1] ?? 'Opponent')
+              : (room?.names[0] ?? 'Opponent');
+            const h2h = await getH2H(client, s.userId, opponentId);
+            if (h2h) {
+              s.emit('h2h_update', { ...h2h, opponentName });
+            }
+          }
+        } finally {
+          client.release();  // always return the client to the pool
+        }
+      });
     }
   }, 1000);
 }
