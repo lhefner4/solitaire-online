@@ -357,18 +357,21 @@
 
     // ── Auth screen ───────────────────────────────────────────────────────────
     function AuthScreen({ onAuth }) {
-      const [tab,      setTab]      = React.useState('login');
-      const [username, setUsername] = React.useState('');
-      const [password, setPassword] = React.useState('');
-      const [error,    setError]    = React.useState('');
-      const [loading,  setLoading]  = React.useState(false);
+      const [tab,          setTab]          = React.useState('login');
+      const [username,     setUsername]     = React.useState('');
+      const [password,     setPassword]     = React.useState('');
+      const [error,        setError]        = React.useState('');
+      const [loading,      setLoading]      = React.useState(false);
+      const [focusedField, setFocusedField] = React.useState(null);
 
-      const inputStyle = {
-        width:'100%', padding:'12px 16px', borderRadius:10,
-        border:'2px solid rgba(255,255,255,.2)',
-        background:'rgba(255,255,255,.1)', color:'#fff', fontSize:16,
+      const inputStyle = focused => ({
+        width:'100%', padding:'12px 16px', borderRadius:12,
+        border:`1.5px solid ${focused ? 'rgba(255,255,255,.55)' : 'rgba(255,255,255,.18)'}`,
+        background:'rgba(255,255,255,.08)', color:'#fff', fontSize:16,
         outline:'none', marginBottom:16,
-      };
+        boxShadow: focused ? '0 0 0 4px rgba(255,255,255,.06)' : 'none',
+        transition:'border-color .15s, box-shadow .15s',
+      });
 
       const submit = async () => {
         if (!username.trim() || !password) return;
@@ -396,19 +399,31 @@
           minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center',
           background:'radial-gradient(ellipse at 50% 30%,#15803d,#14532d)',
         }}>
-          <div style={{textAlign:'center', color:'#fff', padding:32, width:'100%', maxWidth:360}}>
+          {/* Frosted card */}
+          <div style={{
+            textAlign:'center', color:'#fff', padding:32, width:'100%', maxWidth:360,
+            background:'rgba(0,0,0,.25)',
+            border:'1px solid rgba(255,255,255,.15)',
+            borderRadius:20,
+            backdropFilter:'blur(12px)',
+            WebkitBackdropFilter:'blur(12px)',
+            boxShadow:'0 8px 32px rgba(0,0,0,.4)',
+          }}>
             <div style={{fontSize:56, marginBottom:8}}>♠</div>
             <h1 style={{fontSize:32, fontWeight:800, marginBottom:4, letterSpacing:1}}>Solitaire</h1>
             <p style={{color:'rgba(255,255,255,.5)', marginBottom:32, fontSize:15}}>Online Multiplayer</p>
 
-            {/* Tabs */}
-            <div style={{display:'flex', marginBottom:28, background:'rgba(0,0,0,.2)', borderRadius:10, padding:4}}>
+            {/* Tabs — underline indicator */}
+            <div style={{display:'flex', marginBottom:28, borderBottom:'1px solid rgba(255,255,255,.12)'}}>
               {['login','register'].map(t => (
                 <button key={t} onClick={() => { setTab(t); setError(''); }} style={{
-                  flex:1, padding:'10px 0', border:'none', borderRadius:8, fontSize:14, fontWeight:700, cursor:'pointer',
-                  background: tab === t ? '#fff' : 'transparent',
-                  color: tab === t ? '#166534' : 'rgba(255,255,255,.6)',
-                  transition:'all .15s',
+                  flex:1, padding:'10px 0', border:'none',
+                  borderBottom: tab === t ? '2px solid #fff' : '2px solid transparent',
+                  marginBottom:-1,
+                  background:'transparent',
+                  color: tab === t ? '#fff' : 'rgba(255,255,255,.45)',
+                  fontSize:14, fontWeight:700, cursor:'pointer',
+                  transition:'color .15s, border-color .15s',
                 }}>
                   {t === 'login' ? 'Log In' : 'Sign Up'}
                 </button>
@@ -417,11 +432,14 @@
 
             <input
               value={username} onChange={e => setUsername(e.target.value)} onKeyDown={onKey}
-              placeholder="Username" maxLength={50} style={inputStyle}
+              onFocus={() => setFocusedField('username')} onBlur={() => setFocusedField(null)}
+              placeholder="Username" maxLength={50} style={inputStyle(focusedField === 'username')}
             />
             <input
               type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={onKey}
-              placeholder="Password" style={{...inputStyle, marginBottom: error ? 8 : 24}}
+              onFocus={() => setFocusedField('password')} onBlur={() => setFocusedField(null)}
+              placeholder="Password"
+              style={{...inputStyle(focusedField === 'password'), marginBottom: error ? 8 : 24}}
             />
 
             {error && <div style={{color:'#f87171', fontSize:13, marginBottom:16, fontWeight:600}}>{error}</div>}
@@ -443,14 +461,32 @@
 
     // ── Lobby screen ─────────────────────────────────────────────────────────
     function LobbyScreen({ username, onCreate, onJoin, joinCode, setJoinCode, error, onLogout, onLeaderboard }) {
+      const [focusedJoin, setFocusedJoin] = React.useState(false);
+
       return (
         <div style={{
           minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center',
           background:'radial-gradient(ellipse at 50% 30%,#15803d,#14532d)',
         }}>
-          <div style={{textAlign:'center', color:'#fff', padding:32, width:'100%', maxWidth:360}}>
-            {/* Header with username and logout */}
-            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:24}}>
+          {/* Frosted card */}
+          <div style={{
+            textAlign:'center', color:'#fff', padding:32, width:'100%', maxWidth:360,
+            background:'rgba(0,0,0,.25)',
+            border:'1px solid rgba(255,255,255,.15)',
+            borderRadius:20,
+            backdropFilter:'blur(12px)',
+            WebkitBackdropFilter:'blur(12px)',
+            boxShadow:'0 8px 32px rgba(0,0,0,.4)',
+          }}>
+            {/* "Logged in as" bar with green left accent */}
+            <div style={{
+              display:'flex', justifyContent:'space-between', alignItems:'center',
+              marginBottom:24,
+              borderLeft:'3px solid #4ade80',
+              background:'rgba(255,255,255,.05)',
+              paddingLeft:12, paddingRight:12, paddingTop:10, paddingBottom:10,
+              borderRadius:8, textAlign:'left',
+            }}>
               <span style={{fontSize:14, color:'rgba(255,255,255,.6)'}}>
                 Logged in as <strong style={{color:'#fff'}}>{username}</strong>
               </span>
@@ -476,23 +512,35 @@
               Create Game
             </button>
 
-            <div style={{color:'rgba(255,255,255,.3)', marginBottom:16, fontSize:13}}>— or join with a code —</div>
+            {/* Styled divider */}
+            <div style={{display:'flex', alignItems:'center', gap:12, marginBottom:16}}>
+              <div style={{flex:1, height:1, background:'rgba(255,255,255,.12)'}}/>
+              <span style={{color:'rgba(255,255,255,.35)', fontSize:12, fontWeight:500, whiteSpace:'nowrap'}}>
+                or join with a code
+              </span>
+              <div style={{flex:1, height:1, background:'rgba(255,255,255,.12)'}}/>
+            </div>
 
             <div style={{display:'flex', gap:8, marginBottom:20}}>
               <input
                 value={joinCode}
                 onChange={e => setJoinCode(e.target.value.toUpperCase())}
                 onKeyDown={e => e.key === 'Enter' && joinCode.trim() && onJoin()}
+                onFocus={() => setFocusedJoin(true)}
+                onBlur={() => setFocusedJoin(false)}
                 placeholder="Code"
                 maxLength={4}
                 style={{
-                  flex:1, padding:'12px 16px', borderRadius:10, border:'2px solid rgba(255,255,255,.2)',
-                  background:'rgba(255,255,255,.1)', color:'#fff', fontSize:20,
+                  flex:1, minWidth:0, padding:'12px 16px', borderRadius:12,
+                  border:`1.5px solid ${focusedJoin ? 'rgba(255,255,255,.55)' : 'rgba(255,255,255,.18)'}`,
+                  background:'rgba(255,255,255,.08)', color:'#fff', fontSize:20,
                   fontWeight:800, textAlign:'center', letterSpacing:4, outline:'none',
+                  boxShadow: focusedJoin ? '0 0 0 4px rgba(255,255,255,.06)' : 'none',
+                  transition:'border-color .15s, box-shadow .15s',
                 }}
               />
               <button onClick={onJoin} disabled={!joinCode.trim()} style={{
-                padding:'12px 20px',
+                flexShrink:0, padding:'12px 20px',
                 background: joinCode.trim() ? '#2563eb' : 'rgba(255,255,255,.15)',
                 color:'#fff', border:'none', borderRadius:10, fontSize:15, fontWeight:700,
                 cursor: joinCode.trim() ? 'pointer' : 'default', transition:'all .15s',
