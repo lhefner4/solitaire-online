@@ -107,6 +107,38 @@ io.on('connection', socket => {
     }
   });
 
+  // ── Rematch request ───────────────────────────────────────────────────────
+  socket.on('rematch_request', () => {
+    const room = rooms[socket.roomCode];
+    if (!room) return;
+
+    if (!room.rematch) room.rematch = [false, false];
+    room.rematch[socket.playerIdx] = true;
+    io.to(socket.roomCode).emit('rematch_update', { rematch: [...room.rematch] });
+
+    // Both want rematch — reset room and start a new game
+    if (room.rematch[0] && room.rematch[1]) {
+      clearInterval(room.interval);
+      room.seed     = Math.floor(Math.random() * 0xFFFFFFFF);
+      room.scores   = [0, 0];
+      room.timeLeft = 300;
+      room.rematch  = [false, false];
+
+      io.to(socket.roomCode).emit('game_start', { seed: room.seed, names: room.names });
+
+      room.interval = setInterval(() => {
+        room.timeLeft = Math.max(0, room.timeLeft - 1);
+        io.to(socket.roomCode).emit('timer_tick', { timeLeft: room.timeLeft });
+
+        if (room.timeLeft === 0) {
+          clearInterval(room.interval);
+          room.interval = null;
+          io.to(socket.roomCode).emit('game_over', { scores: room.scores });
+        }
+      }, 1000);
+    }
+  });
+
   // ── Score update from a player ────────────────────────────────────────────
   socket.on('score_update', ({ score }) => {
     const room = rooms[socket.roomCode];

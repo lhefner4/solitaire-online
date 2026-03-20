@@ -505,10 +505,12 @@
     }
 
     // ── Game over screen ──────────────────────────────────────────────────────
-    function GameOverScreen({ myScore, oppScore, myName, oppName, onPlayAgain }) {
-      const diff = myScore - oppScore;
-      const result = diff > 0 ? `${myName} Wins! 🎉` : diff < 0 ? `${oppName} Wins! 🎉` : "It's a Tie! 🤝";
-      const color  = diff > 0 ? '#16a34a' : diff < 0 ? '#dc2626' : '#d97706';
+    function GameOverScreen({ myScore, oppScore, myName, oppName, rematch, playerIdx, onRematch, onNewGame }) {
+      const diff     = myScore - oppScore;
+      const result   = diff > 0 ? `${myName} Wins! 🎉` : diff < 0 ? `${oppName} Wins! 🎉` : "It's a Tie! 🤝";
+      const color    = diff > 0 ? '#16a34a' : diff < 0 ? '#dc2626' : '#d97706';
+      const iAsked   = rematch[playerIdx];
+      const bothAsked = rematch[0] && rematch[1];
 
       return (
         <div style={{
@@ -517,7 +519,7 @@
         }}>
           <div style={{
             background:'#fff', borderRadius:20, padding:'40px 48px',
-            textAlign:'center', boxShadow:'0 20px 60px rgba(0,0,0,.5)', minWidth:300,
+            textAlign:'center', boxShadow:'0 20px 60px rgba(0,0,0,.5)', minWidth:320,
           }}>
             <div style={{fontSize:52, marginBottom:8}}>🏆</div>
             <h2 style={{fontSize:28, fontWeight:800, color, margin:'0 0 20px'}}>{result}</h2>
@@ -534,11 +536,40 @@
               </div>
             </div>
 
-            <button onClick={onPlayAgain} style={{
-              padding:'12px 36px', background:'#16a34a', color:'white',
-              border:'none', borderRadius:12, fontSize:17, fontWeight:700, cursor:'pointer',
+            {/* Rematch status */}
+            <div style={{display:'flex', gap:8, marginBottom:16}}>
+              {[myName, oppName].map((name, i) => {
+                const idx = i === 0 ? playerIdx : 1 - playerIdx;
+                return (
+                  <div key={i} style={{
+                    flex:1, padding:'8px', borderRadius:10, fontSize:12, fontWeight:700,
+                    background: rematch[idx] ? '#dcfce7' : '#f3f4f6',
+                    color: rematch[idx] ? '#16a34a' : '#9ca3af',
+                    border: `1px solid ${rematch[idx] ? '#86efac' : '#e5e7eb'}`,
+                  }}>
+                    {rematch[idx] ? '✓ Rematch' : `${name}…`}
+                  </div>
+                );
+              })}
+            </div>
+
+            <button onClick={onRematch} disabled={iAsked} style={{
+              display:'block', width:'100%', padding:'13px 0', marginBottom:10,
+              background: iAsked ? '#f3f4f6' : '#16a34a',
+              color: iAsked ? '#9ca3af' : 'white',
+              border:'none', borderRadius:12, fontSize:16, fontWeight:700,
+              cursor: iAsked ? 'default' : 'pointer',
             }}>
-              New Game
+              {bothAsked ? 'Starting…' : iAsked ? 'Waiting for opponent…' : '🔁 Rematch'}
+            </button>
+
+            <button onClick={onNewGame} style={{
+              display:'block', width:'100%', padding:'11px 0',
+              background:'none', color:'#6b7280',
+              border:'1px solid #e5e7eb', borderRadius:12,
+              fontSize:14, fontWeight:600, cursor:'pointer',
+            }}>
+              New Game (back to lobby)
             </button>
           </div>
         </div>
@@ -595,7 +626,8 @@
       const [joinCode,    setJoinCode]    = useState('');
       const [playerName,  setPlayerName]  = useState('');
       const [names,       setNames]       = useState(['Player 1', 'Player 2']);
-      const [readyFlags,  setReadyFlags]  = useState([false, false]);
+      const [readyFlags,   setReadyFlags]   = useState([false, false]);
+      const [rematchFlags, setRematchFlags] = useState([false, false]);
       const [seed,        setSeed]        = useState(null);
       const [timeLeft,    setTimeLeft]    = useState(300);
       const [scores,      setScores]      = useState([0, 0]);
@@ -647,7 +679,12 @@
 
         socket.on('game_over', ({ scores }) => {
           setScores([...scores]);
+          setRematchFlags([false, false]);
           setScreen('gameover');
+        });
+
+        socket.on('rematch_update', ({ rematch }) => {
+          setRematchFlags([...rematch]);
         });
 
         socket.on('opponent_left', () => {
@@ -680,6 +717,10 @@
 
       const signalReady = () => {
         socketRef.current?.emit('player_ready');
+      };
+
+      const requestRematch = () => {
+        socketRef.current?.emit('rematch_request');
       };
 
       const goToLobby = () => {
@@ -737,7 +778,10 @@
             <GameOverScreen
               myScore={myScore} oppScore={oppScore}
               myName={myName} oppName={oppName}
-              onPlayAgain={goToLobby}
+              rematch={rematchFlags}
+              playerIdx={playerIdxRef.current}
+              onRematch={requestRematch}
+              onNewGame={goToLobby}
             />
           )}
         </div>
