@@ -442,51 +442,47 @@
     }
 
     // ── Lobby screen ─────────────────────────────────────────────────────────
-    function LobbyScreen({ onCreate, onJoin, joinCode, setJoinCode, playerName, setPlayerName, error }) {
-      const nameInput = {
-        width:'100%', padding:'12px 16px', borderRadius:10,
-        border:'2px solid rgba(255,255,255,.2)',
-        background:'rgba(255,255,255,.1)', color:'#fff', fontSize:16,
-        outline:'none', marginBottom:28,
-      };
-
+    function LobbyScreen({ username, onCreate, onJoin, joinCode, setJoinCode, error, onLogout, onLeaderboard }) {
       return (
         <div style={{
           minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center',
           background:'radial-gradient(ellipse at 50% 30%,#15803d,#14532d)',
         }}>
           <div style={{textAlign:'center', color:'#fff', padding:32, width:'100%', maxWidth:360}}>
+            {/* Header with username and logout */}
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:24}}>
+              <span style={{fontSize:14, color:'rgba(255,255,255,.6)'}}>
+                Logged in as <strong style={{color:'#fff'}}>{username}</strong>
+              </span>
+              <button onClick={onLogout} style={{
+                padding:'6px 14px', background:'rgba(255,255,255,.1)', color:'rgba(255,255,255,.7)',
+                border:'1px solid rgba(255,255,255,.15)', borderRadius:8, fontSize:12, cursor:'pointer',
+              }}>
+                Log Out
+              </button>
+            </div>
+
             <div style={{fontSize:56, marginBottom:8}}>♠</div>
             <h1 style={{fontSize:32, fontWeight:800, marginBottom:4, letterSpacing:1}}>Solitaire</h1>
             <p style={{color:'rgba(255,255,255,.5)', marginBottom:32, fontSize:15}}>Online Multiplayer</p>
 
-            <input
-              value={playerName}
-              onChange={e => setPlayerName(e.target.value)}
-              placeholder="Enter your name"
-              maxLength={20}
-              style={nameInput}
-            />
-
-            <button onClick={onCreate} disabled={!playerName.trim()} style={{
+            <button onClick={onCreate} style={{
               display:'block', width:'100%', padding:'14px 0',
-              background: playerName.trim() ? '#16a34a' : 'rgba(255,255,255,.15)',
-              color:'#fff', border:'none',
+              background:'#16a34a', color:'#fff', border:'none',
               borderRadius:12, fontSize:17, fontWeight:700,
-              cursor: playerName.trim() ? 'pointer' : 'default',
-              marginBottom:20, boxShadow: playerName.trim() ? '0 4px 16px rgba(0,0,0,.3)' : 'none',
-              transition:'all .15s',
+              cursor:'pointer', marginBottom:20,
+              boxShadow:'0 4px 16px rgba(0,0,0,.3)', transition:'all .15s',
             }}>
               Create Game
             </button>
 
             <div style={{color:'rgba(255,255,255,.3)', marginBottom:16, fontSize:13}}>— or join with a code —</div>
 
-            <div style={{display:'flex', gap:8}}>
+            <div style={{display:'flex', gap:8, marginBottom:20}}>
               <input
                 value={joinCode}
                 onChange={e => setJoinCode(e.target.value.toUpperCase())}
-                onKeyDown={e => e.key === 'Enter' && playerName.trim() && onJoin()}
+                onKeyDown={e => e.key === 'Enter' && joinCode.trim() && onJoin()}
                 placeholder="Code"
                 maxLength={4}
                 style={{
@@ -495,20 +491,24 @@
                   fontWeight:800, textAlign:'center', letterSpacing:4, outline:'none',
                 }}
               />
-              <button onClick={onJoin} disabled={!playerName.trim() || !joinCode.trim()} style={{
+              <button onClick={onJoin} disabled={!joinCode.trim()} style={{
                 padding:'12px 20px',
-                background: (playerName.trim() && joinCode.trim()) ? '#2563eb' : 'rgba(255,255,255,.15)',
+                background: joinCode.trim() ? '#2563eb' : 'rgba(255,255,255,.15)',
                 color:'#fff', border:'none', borderRadius:10, fontSize:15, fontWeight:700,
-                cursor: (playerName.trim() && joinCode.trim()) ? 'pointer' : 'default',
-                transition:'all .15s',
+                cursor: joinCode.trim() ? 'pointer' : 'default', transition:'all .15s',
               }}>
                 Join
               </button>
             </div>
 
-            {!playerName.trim() && (
-              <div style={{marginTop:12, color:'rgba(255,255,255,.4)', fontSize:13}}>Enter your name to play</div>
-            )}
+            <button onClick={onLeaderboard} style={{
+              display:'block', width:'100%', padding:'11px 0',
+              background:'rgba(255,255,255,.1)', color:'rgba(255,255,255,.8)',
+              border:'1px solid rgba(255,255,255,.15)', borderRadius:12,
+              fontSize:14, fontWeight:600, cursor:'pointer',
+            }}>
+              📊 My Record
+            </button>
 
             {error && (
               <div style={{marginTop:16, color:'#f87171', fontSize:14, fontWeight:600}}>{error}</div>
@@ -732,7 +732,7 @@
       const [screen,      setScreen]      = useState('lobby');
       const [roomCode,    setRoomCode]    = useState('');
       const [joinCode,    setJoinCode]    = useState('');
-      const [playerName,  setPlayerName]  = useState('');
+
       const [names,       setNames]       = useState(['Player 1', 'Player 2']);
       const [readyFlags,   setReadyFlags]   = useState([false, false]);
       const [rematchFlags, setRematchFlags] = useState([false, false]);
@@ -882,10 +882,14 @@
 
       if (screen === 'lobby') {
         return <LobbyScreen
-          onCreate={createRoom} onJoin={joinRoom}
-          joinCode={joinCode} setJoinCode={setJoinCode}
-          playerName={playerName} setPlayerName={setPlayerName}
+          username={auth?.username ?? ''}
+          onCreate={createRoom}
+          onJoin={joinRoom}
+          joinCode={joinCode}
+          setJoinCode={setJoinCode}
           error={error}
+          onLogout={logout}
+          onLeaderboard={() => setScreen('leaderboard')}
         />;
       }
 
