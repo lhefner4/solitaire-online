@@ -92,6 +92,8 @@ app.post('/api/login', authLimiter, async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password)
     return res.status(400).json({ error: 'username and password required' });
+  if (typeof password !== 'string' || password.length > 72)
+    return res.status(400).json({ error: 'Invalid username or password' });
 
   try {
     const result = await db.query('SELECT * FROM users WHERE username = $1', [username.trim()]);
