@@ -740,12 +740,24 @@
       const [timeLeft,    setTimeLeft]    = useState(300);
       const [scores,      setScores]      = useState([0, 0]);
       const [error,       setError]       = useState('');
+      const [h2h,         setH2h]         = useState(null);
       const [auth,        setAuth]        = useState(() => getStoredAuth());
 
-      // Connect socket once on mount
+      // Connect socket when auth is available
       useEffect(() => {
-        const socket = io();
+        if (!auth) return;  // don't connect until logged in
+
+        const socket = io({ reconnection: false, auth: { token: auth.token } });
         socketRef.current = socket;
+
+        socket.on('connect_error', (err) => {
+          // Middleware rejection (auth_required / auth_invalid) surfaces here as connect_error.
+          // No auth_error event is emitted — the socket was never admitted.
+          if (err.message === 'auth_required' || err.message === 'auth_invalid') {
+            localStorage.removeItem('sol_token');
+            setAuth(null);
+          }
+        });
 
         socket.on('room_created', ({ code, seed, playerIdx }) => {
           playerIdxRef.current = playerIdx;
@@ -775,6 +787,7 @@
           setNames(names);
           setTimeLeft(300);
           setScores([0, 0]);
+          setH2h(null);   // reset H2H for new game
           setScreen('playing');
         });
 
@@ -805,19 +818,22 @@
           setError(msg);
         });
 
+        socket.on('h2h_update', (data) => {
+          setH2h(data);
+        });
+
         return () => socket.disconnect();
-      }, []);
+      }, [auth?.token]);   // depend on token string — avoids reconnecting on every re-render
 
       const createRoom = () => {
-        if (!playerName.trim()) return;
         setError('');
-        socketRef.current?.emit('create_room', { name: playerName.trim() });
+        socketRef.current?.emit('create_room');   // no name param
       };
 
       const joinRoom = () => {
-        if (!joinCode.trim() || !playerName.trim()) return;
+        if (!joinCode.trim()) return;
         setError('');
-        socketRef.current?.emit('join_room', { code: joinCode.trim(), name: playerName.trim() });
+        socketRef.current?.emit('join_room', { code: joinCode.trim() });  // no name param
       };
 
       const onScoreChange = useCallback(score => {
