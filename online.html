@@ -689,7 +689,7 @@
     }
 
     // ── Game over screen ──────────────────────────────────────────────────────
-    function GameOverScreen({ myScore, oppScore, myName, oppName, rematch, playerIdx, onRematch, onNewGame }) {
+    function GameOverScreen({ myScore, oppScore, myName, oppName, rematch, playerIdx, onRematch, onNewGame, h2h }) {
       const diff     = myScore - oppScore;
       const result   = diff > 0 ? `${myName} Wins! 🎉` : diff < 0 ? `${oppName} Wins! 🎉` : "It's a Tie! 🤝";
       const color    = diff > 0 ? '#16a34a' : diff < 0 ? '#dc2626' : '#d97706';
@@ -719,6 +719,17 @@
                 <div style={{fontSize:36, fontWeight:800, color:'#166534'}}>{oppScore}</div>
               </div>
             </div>
+
+            {h2h && (
+              <div style={{
+                fontSize:13, color:'#6b7280', marginBottom:16, fontWeight:500,
+              }}>
+                You're now{' '}
+                <strong style={{color:'#166534'}}>{h2h.wins}–{h2h.losses}–{h2h.draws}</strong>
+                {' '}vs.{' '}
+                <strong>{h2h.opponentName}</strong>
+              </div>
+            )}
 
             {/* Rematch status */}
             <div style={{display:'flex', gap:8, marginBottom:16}}>
@@ -930,6 +941,7 @@
         setJoinCode('');
         setScores([0, 0]);
         setReadyFlags([false, false]);
+        setH2h(null);
         setError('');
       };
 
@@ -1012,6 +1024,7 @@
               playerIdx={playerIdxRef.current}
               onRematch={requestRematch}
               onNewGame={goToLobby}
+              h2h={h2h}
             />
           )}
         </div>
