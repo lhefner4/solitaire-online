@@ -111,6 +111,67 @@ app.post('/api/login', authLimiter, async (req, res) => {
   }
 });
 
+// ── Auth middleware ────────────────────────────────────────────────────────
+function requireAuth(req, res, next) {
+  const header = req.headers.authorization || '';
+  const token  = header.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token) return res.status(401).json({ error: 'Authentication required' });
+  try {
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
+// ── Head-to-head stats endpoint ────────────────────────────────────────────
+app.get('/api/h2h', requireAuth, async (req, res) => {
+  const userId = req.user.userId;
+  try {
+    const result = await db.query(`
+      WITH h2h AS (
+        SELECT
+          opponent_id,
+          SUM(CASE WHEN is_win  THEN 1 ELSE 0 END) AS wins,
+          SUM(CASE WHEN is_loss THEN 1 ELSE 0 END) AS losses,
+          SUM(CASE WHEN is_draw THEN 1 ELSE 0 END) AS draws,
+          MAX(played_at) AS last_played
+        FROM (
+          SELECT
+            player2_id AS opponent_id,
+            (winner_id IS NOT NULL AND winner_id = $1) AS is_win,
+            (winner_id IS NOT NULL AND winner_id != $1) AS is_loss,
+            (winner_id IS NULL) AS is_draw,
+            played_at
+          FROM matches WHERE player1_id = $1
+          UNION ALL
+          SELECT
+            player1_id AS opponent_id,
+            (winner_id IS NOT NULL AND winner_id = $1) AS is_win,
+            (winner_id IS NOT NULL AND winner_id != $1) AS is_loss,
+            (winner_id IS NULL) AS is_draw,
+            played_at
+          FROM matches WHERE player2_id = $1
+        ) sub
+        GROUP BY opponent_id
+      )
+      SELECT
+        h2h.wins::int,
+        h2h.losses::int,
+        h2h.draws::int,
+        h2h.last_played AS "lastPlayed",
+        COALESCE(u.username, '[deleted]') AS "opponentName"
+      FROM h2h
+      LEFT JOIN users u ON u.id = h2h.opponent_id
+      ORDER BY h2h.last_played DESC
+    `, [userId]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('h2h error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ── In-memory room store ───────────────────────────────────────────────────
 const rooms = {};
 
