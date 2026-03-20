@@ -143,7 +143,7 @@ Array sorted by `lastPlayed` descending. Empty array `[]` if no matches played y
 
 - **Socket creation:** the client creates the socket with `{ reconnection: false }` — auto-reconnect is disabled globally. All reconnection is managed manually by the application (only attempted after a successful re-login). This eliminates any reconnect storm risk on auth failure regardless of Socket.io version.
 
-- **On connect:** client passes JWT in Socket.io auth handshake (`{ auth: { token } }`). Server verifies it and attaches `userId` and `username` to the socket. If the JWT is missing, invalid, or expired, the server emits `auth_error` with `{ msg: 'Please log in again' }`, then calls `socket.disconnect(true)`. The client handles `auth_error` by clearing `localStorage` and showing the auth screen.
+- **On connect:** client passes JWT in Socket.io auth handshake (`{ auth: { token } }`). Server verifies it via a Socket.io `io.use(...)` middleware. If the JWT is missing, invalid, or expired, the middleware calls `next(new Error('auth_required'))` or `next(new Error('auth_invalid'))` — this rejects the connection before the socket is admitted (no socket to emit to). The client receives a `connect_error` event with `err.message` set to the rejection reason. The client handles `connect_error` (when message is `auth_required` or `auth_invalid`) by clearing `localStorage` and showing the auth screen.
 
 - **Mid-session expiry:** on page load, the client decodes the JWT locally (base64-decodes the payload, no signature verification) to check `exp`. If expired or absent, it clears `localStorage` and shows the auth screen without attempting a socket connection.
 
