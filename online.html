@@ -518,6 +518,82 @@
       );
     }
 
+    // ── Leaderboard screen ────────────────────────────────────────────────────
+    function LeaderboardScreen({ token, username, onBack }) {
+      const [records, setRecords] = React.useState(null);
+      const [error,   setError]   = React.useState('');
+
+      React.useEffect(() => {
+        fetch('/api/h2h', { headers: { Authorization: `Bearer ${token}` } })
+          .then(r => r.json())
+          .then(data => Array.isArray(data) ? setRecords(data) : setError(data.error || 'Failed to load'))
+          .catch(() => setError('Network error'));
+      }, [token]);
+
+      return (
+        <div style={{
+          minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center',
+          background:'radial-gradient(ellipse at 50% 30%,#15803d,#14532d)',
+        }}>
+          <div style={{color:'#fff', padding:32, width:'100%', maxWidth:420}}>
+            <button onClick={onBack} style={{
+              background:'none', border:'none', color:'rgba(255,255,255,.6)',
+              fontSize:14, cursor:'pointer', marginBottom:20, padding:0,
+            }}>
+              ← Back to lobby
+            </button>
+
+            <div style={{textAlign:'center', marginBottom:28}}>
+              <div style={{fontSize:40, marginBottom:8}}>📊</div>
+              <h2 style={{fontSize:26, fontWeight:800, marginBottom:4}}>My Record</h2>
+              <p style={{color:'rgba(255,255,255,.5)', fontSize:14}}>Head-to-head as {username}</p>
+            </div>
+
+            {!records && !error && (
+              <div style={{textAlign:'center', color:'rgba(255,255,255,.5)', fontSize:14}}>Loading…</div>
+            )}
+
+            {error && (
+              <div style={{textAlign:'center', color:'#f87171', fontSize:14}}>{error}</div>
+            )}
+
+            {records && records.length === 0 && (
+              <div style={{textAlign:'center', color:'rgba(255,255,255,.4)', fontSize:15, marginTop:32}}>
+                No games played yet.<br/>
+                <span style={{fontSize:13}}>Complete a game to see your record here.</span>
+              </div>
+            )}
+
+            {records && records.length > 0 && (
+              <div style={{background:'rgba(0,0,0,.2)', borderRadius:16, overflow:'hidden'}}>
+                {/* Header */}
+                <div style={{display:'grid', gridTemplateColumns:'1fr 60px 60px 60px', padding:'12px 20px',
+                  background:'rgba(0,0,0,.2)', color:'rgba(255,255,255,.5)', fontSize:12, fontWeight:700,
+                  textTransform:'uppercase', letterSpacing:1}}>
+                  <span>Opponent</span>
+                  <span style={{textAlign:'center'}}>W</span>
+                  <span style={{textAlign:'center'}}>L</span>
+                  <span style={{textAlign:'center'}}>D</span>
+                </div>
+                {records.map((r, i) => (
+                  <div key={i} style={{
+                    display:'grid', gridTemplateColumns:'1fr 60px 60px 60px',
+                    padding:'14px 20px', borderTop:'1px solid rgba(255,255,255,.06)',
+                    alignItems:'center',
+                  }}>
+                      <span style={{fontWeight:700, fontSize:15}}>{r.opponentName}</span>
+                      <span style={{textAlign:'center', fontWeight:800, color:'#4ade80', fontSize:16}}>{r.wins}</span>
+                      <span style={{textAlign:'center', fontWeight:800, color:'#f87171', fontSize:16}}>{r.losses}</span>
+                      <span style={{textAlign:'center', fontWeight:800, color:'#fbbf24', fontSize:16}}>{r.draws}</span>
+                    </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     // ── Ready screen ─────────────────────────────────────────────────────────
     function ReadyScreen({ names, ready, playerIdx, onReady }) {
       const iReady  = ready[playerIdx];
@@ -890,6 +966,14 @@
           error={error}
           onLogout={logout}
           onLeaderboard={() => setScreen('leaderboard')}
+        />;
+      }
+
+      if (screen === 'leaderboard') {
+        return <LeaderboardScreen
+          token={auth?.token ?? ''}
+          username={auth?.username ?? ''}
+          onBack={() => setScreen('lobby')}
         />;
       }
 
