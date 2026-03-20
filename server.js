@@ -2,12 +2,50 @@ const express = require('express');
 const http    = require('http');
 const { Server } = require('socket.io');
 const path    = require('path');
+const { Pool } = require('pg');
+
+// ── Env assertions ─────────────────────────────────────────────────────────
+if (!process.env.JWT_SECRET)    throw new Error('Missing env var: JWT_SECRET');
+if (!process.env.DATABASE_URL)  throw new Error('Missing env var: DATABASE_URL');
+
+const db = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+
+// ── Schema migration ───────────────────────────────────────────────────────
+async function migrate() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id            SERIAL PRIMARY KEY,
+      username      VARCHAR(50) UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS matches (
+      id            SERIAL PRIMARY KEY,
+      player1_id    INTEGER NOT NULL REFERENCES users(id),
+      player2_id    INTEGER NOT NULL REFERENCES users(id),
+      winner_id     INTEGER REFERENCES users(id),
+      player1_score INTEGER NOT NULL,
+      player2_score INTEGER NOT NULL,
+      played_at     TIMESTAMPTZ DEFAULT NOW(),
+      CONSTRAINT winner_is_participant CHECK (
+        winner_id IS NULL OR winner_id = player1_id OR winner_id = player2_id
+      )
+    )
+  `);
+  console.log('✅  DB migration complete');
+}
 
 const app    = express();
 const server = http.createServer(app);
-const io     = new Server(server, { cors: { origin: '*' } });
+const io     = new Server(server, {
+  cors: { origin: '*' },
+  pingTimeout:  20000,   // disconnect if no pong within 20s
+  pingInterval: 10000,   // ping every 10s — keeps Railway proxy alive
+});
 
-// Serve all static files (online.html, etc.) from this directory
+// Serve all static files from this directory
 app.use(express.static(path.join(__dirname)));
 
 // ── In-memory room store ───────────────────────────────────────────────────
@@ -21,7 +59,36 @@ function cleanRoom(code) {
   const room = rooms[code];
   if (!room) return;
   clearInterval(room.interval);
+  room.interval = null;
   delete rooms[code];
+}
+
+// ── Start the countdown for a room ────────────────────────────────────────
+// Captures `code` as a local string — safe even if the triggering socket
+// later disconnects or changes rooms.
+function startTimer(code) {
+  const room = rooms[code];
+  if (!room) return;
+
+  // Safety: never run two intervals on the same room
+  if (room.interval) {
+    clearInterval(room.interval);
+    room.interval = null;
+  }
+
+  room.interval = setInterval(() => {
+    const r = rooms[code];
+    if (!r) { clearInterval(room.interval); return; } // room was deleted
+
+    r.timeLeft = Math.max(0, r.timeLeft - 1);
+    io.to(code).emit('timer_tick', { timeLeft: r.timeLeft });
+
+    if (r.timeLeft === 0) {
+      clearInterval(r.interval);
+      r.interval = null;
+      io.to(code).emit('game_over', { scores: r.scores });
+    }
+  }, 1000);
 }
 
 // ── Socket events ──────────────────────────────────────────────────────────
@@ -30,7 +97,6 @@ io.on('connection', socket => {
 
   // ── Create a new room ────────────────────────────────────────────────────
   socket.on('create_room', ({ name }) => {
-    // Leave any previous room
     if (socket.roomCode) cleanRoom(socket.roomCode);
 
     let code;
@@ -51,11 +117,7 @@ io.on('connection', socket => {
     socket.roomCode  = code;
     socket.playerIdx = 0;
 
-    socket.emit('room_created', {
-      code,
-      seed:      rooms[code].seed,
-      playerIdx: 0,
-    });
+    socket.emit('room_created', { code, seed: rooms[code].seed, playerIdx: 0 });
   });
 
   // ── Join an existing room ─────────────────────────────────────────────────
@@ -75,93 +137,72 @@ io.on('connection', socket => {
     socket.playerIdx = 1;
 
     socket.emit('room_joined', { code: room.code, seed: room.seed, playerIdx: 1 });
-
-    // Both players present — move to ready check (do NOT start timer yet)
     io.to(key).emit('players_joined', { names: room.names, ready: room.ready });
   });
 
   // ── Player signals ready ───────────────────────────────────────────────────
   socket.on('player_ready', () => {
-    const room = rooms[socket.roomCode];
+    const code = socket.roomCode;
+    const room = rooms[code];
     if (!room || room.started) return;
 
     room.ready[socket.playerIdx] = true;
-    io.to(socket.roomCode).emit('ready_update', { ready: [...room.ready] });
+    io.to(code).emit('ready_update', { ready: [...room.ready] });
 
-    // Both ready — start the game
     if (room.ready[0] && room.ready[1]) {
       room.started = true;
-      io.to(socket.roomCode).emit('game_start', { seed: room.seed, names: room.names });
-
-      // Server-authoritative countdown
-      room.interval = setInterval(() => {
-        room.timeLeft = Math.max(0, room.timeLeft - 1);
-        io.to(socket.roomCode).emit('timer_tick', { timeLeft: room.timeLeft });
-
-        if (room.timeLeft === 0) {
-          clearInterval(room.interval);
-          room.interval = null;
-          io.to(socket.roomCode).emit('game_over', { scores: room.scores });
-        }
-      }, 1000);
+      io.to(code).emit('game_start', { seed: room.seed, names: room.names });
+      startTimer(code);
     }
   });
 
   // ── Rematch request ───────────────────────────────────────────────────────
   socket.on('rematch_request', () => {
-    const room = rooms[socket.roomCode];
+    const code = socket.roomCode;
+    const room = rooms[code];
     if (!room) return;
 
     if (!room.rematch) room.rematch = [false, false];
     room.rematch[socket.playerIdx] = true;
-    io.to(socket.roomCode).emit('rematch_update', { rematch: [...room.rematch] });
+    io.to(code).emit('rematch_update', { rematch: [...room.rematch] });
 
-    // Both want rematch — reset room and start a new game
     if (room.rematch[0] && room.rematch[1]) {
-      clearInterval(room.interval);
       room.seed     = Math.floor(Math.random() * 0xFFFFFFFF);
       room.scores   = [0, 0];
       room.timeLeft = 300;
       room.rematch  = [false, false];
 
-      io.to(socket.roomCode).emit('game_start', { seed: room.seed, names: room.names });
-
-      room.interval = setInterval(() => {
-        room.timeLeft = Math.max(0, room.timeLeft - 1);
-        io.to(socket.roomCode).emit('timer_tick', { timeLeft: room.timeLeft });
-
-        if (room.timeLeft === 0) {
-          clearInterval(room.interval);
-          room.interval = null;
-          io.to(socket.roomCode).emit('game_over', { scores: room.scores });
-        }
-      }, 1000);
+      io.to(code).emit('game_start', { seed: room.seed, names: room.names });
+      startTimer(code);
     }
   });
 
   // ── Score update from a player ────────────────────────────────────────────
   socket.on('score_update', ({ score }) => {
-    const room = rooms[socket.roomCode];
+    const code = socket.roomCode;
+    const room = rooms[code];
     if (!room) return;
 
     room.scores[socket.playerIdx] = score;
-    io.to(socket.roomCode).emit('scores_update', { scores: [...room.scores] });
+    io.to(code).emit('scores_update', { scores: [...room.scores] });
   });
 
   // ── Disconnect ────────────────────────────────────────────────────────────
   socket.on('disconnect', () => {
     console.log('disconnect', socket.id);
-    const room = rooms[socket.roomCode];
-    if (!room) return;
+    const code = socket.roomCode;
+    if (!rooms[code]) return;
 
-    io.to(socket.roomCode).emit('opponent_left');
-    cleanRoom(socket.roomCode);
+    io.to(code).emit('opponent_left');
+    cleanRoom(code);
   });
 });
 
 // ── Start ──────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`\n✅  Server running → http://localhost:${PORT}`);
-  console.log(`   Open online.html via http://localhost:${PORT}/online.html\n`);
-});
+migrate().then(() => {
+  server.listen(PORT, () => {
+    console.log(`\n✅  Server running → http://localhost:${PORT}`);
+    console.log(`   Open online.html via http://localhost:${PORT}/online.html\n`);
+  });
+}).catch(err => { console.error('Migration failed:', err); process.exit(1); });
