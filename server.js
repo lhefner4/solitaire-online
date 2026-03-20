@@ -1,8 +1,11 @@
-const express = require('express');
-const http    = require('http');
+const express    = require('express');
+const http       = require('http');
 const { Server } = require('socket.io');
-const path    = require('path');
-const { Pool } = require('pg');
+const path       = require('path');
+const { Pool }   = require('pg');
+const bcrypt     = require('bcrypt');
+const jwt        = require('jsonwebtoken');
+const rateLimit  = require('express-rate-limit');
 
 // ── Env assertions ─────────────────────────────────────────────────────────
 if (!process.env.JWT_SECRET)    throw new Error('Missing env var: JWT_SECRET');
@@ -47,6 +50,64 @@ const io     = new Server(server, {
 
 // Serve all static files from this directory
 app.use(express.static(path.join(__dirname)));
+
+app.use(express.json());
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+
+// ── Auth REST endpoints ────────────────────────────────────────────────────
+app.post('/api/register', authLimiter, async (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password)
+    return res.status(400).json({ error: 'username and password required' });
+  if (typeof username !== 'string' || username.trim().length === 0)
+    return res.status(400).json({ error: 'invalid username' });
+  if (typeof password !== 'string' || password.length < 6 || password.length > 72)
+    return res.status(400).json({ error: 'password must be 6–72 characters' });
+
+  const name = username.trim().slice(0, 50);
+  try {
+    const hash = await bcrypt.hash(password, 10);
+    const result = await db.query(
+      'INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id, username',
+      [name, hash]
+    );
+    const user  = result.rows[0];
+    const token = jwt.sign({ userId: user.id, username: user.username }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, username: user.username });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Username already taken' });
+    console.error('register error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/api/login', authLimiter, async (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password)
+    return res.status(400).json({ error: 'username and password required' });
+
+  try {
+    const result = await db.query('SELECT * FROM users WHERE username = $1', [username.trim()]);
+    const user   = result.rows[0];
+    if (!user) return res.status(401).json({ error: 'Invalid username or password' });
+
+    const match = await bcrypt.compare(password, user.password_hash);
+    if (!match) return res.status(401).json({ error: 'Invalid username or password' });
+
+    const token = jwt.sign({ userId: user.id, username: user.username }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, username: user.username });
+  } catch (err) {
+    console.error('login error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
 // ── In-memory room store ───────────────────────────────────────────────────
 const rooms = {};
