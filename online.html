@@ -72,6 +72,27 @@
 
     const fmt = s => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
 
+    // ── JWT helpers ───────────────────────────────────────────────────────────
+    function decodeJwt(token) {
+      try {
+        const payload = token.split('.')[1];
+        return JSON.parse(atob(payload));
+      } catch {
+        return null;
+      }
+    }
+
+    function getStoredAuth() {
+      const token = localStorage.getItem('sol_token');
+      if (!token) return null;
+      const decoded = decodeJwt(token);
+      if (!decoded || decoded.exp * 1000 < Date.now()) {
+        localStorage.removeItem('sol_token');
+        return null;
+      }
+      return { token, userId: decoded.userId, username: decoded.username };
+    }
+
     // ── card dimensions ──────────────────────────────────────────────────────
     const CW=66, CH=92, FDU=28, FDD=18;
 
@@ -632,6 +653,7 @@
       const [timeLeft,    setTimeLeft]    = useState(300);
       const [scores,      setScores]      = useState([0, 0]);
       const [error,       setError]       = useState('');
+      const [auth,        setAuth]        = useState(() => getStoredAuth());
 
       // Connect socket once on mount
       useEffect(() => {
@@ -729,6 +751,16 @@
         setJoinCode('');
         setScores([0, 0]);
         setReadyFlags([false, false]);
+        setError('');
+      };
+
+      const logout = () => {
+        localStorage.removeItem('sol_token');
+        setAuth(null);  // auth guard renders AuthScreen when auth is null — no setScreen needed
+        if (socketRef.current) {
+          socketRef.current.disconnect();
+          socketRef.current = null;
+        }
         setError('');
       };
 
